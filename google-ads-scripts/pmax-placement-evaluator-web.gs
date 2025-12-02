@@ -169,12 +169,12 @@ function generateDynamicName(owner, repo, category, filename, platform) {
   const normalizedFilename = filename.toLowerCase();
   const ownerPatterns = {
     'cbuijs': 'Accomplist',
-    'j-gute': 'di sw',
+    'j-gute': 'DI SW',
     'levi2288': 'AdvancedBlockList',
-    'romainmarcoux': 'Marcoux Security',
+    'romainmarcoux': 'Marcoux',
     'stamparm': 'IPsum',
-    'shadowwhisperer': 'ShadowWhisperer',
-    'sefinek': 'Sefinek Security',
+    'shadowwhisperer': 'SHWH',
+    'sefinek': 'Sefinek',
     '2004gixxer600': 'Gixxer BlockLists',
     'hagezi': 'HaGeZi'
   };
@@ -188,7 +188,7 @@ function generateDynamicName(owner, repo, category, filename, platform) {
     'games': 'Gaming Domains',
     'streaming': 'Streaming Domains',
     'chris': 'Regional Blacklisted Domains',
-    'warez': 'Warez Domains',
+    'warez': 'Warez/Piracy Domains',
     'suspicious-tlds': 'Suspicious TLDs',
     'abuse-tlds': 'Abuse TLDs',
     'domains': 'Domain Blocklist',
@@ -200,17 +200,29 @@ function generateDynamicName(owner, repo, category, filename, platform) {
     'spam-and-irrelevant-terms': 'Spam Keywords',
     'fake-onlydomains' : 'Likely Fake/Scam Domains',
     'whitelisted-domains': 'Whitelisted Domains',
-    'disw-mcc-exclusion-master-list': 'Custom MCC Exclusion List'
+    'porn': 'Adult Content Domains',
+    'phishing': 'Phishing Domains',
+    'piracy': 'Piracy Domains',
+    'redirect': 'Redirect Domains',
+    'wildcard': 'Wildcard Domain Patterns',
+    'tracking': 'Tracking/Telemetry Domains',
+    'drugs': 'Drug-Related Domains',
+    'fraud': 'Fraud Domains',
+    'disw-mcc-exclusion-master-list': 'DISW MCC Exclusion List'
   };
   const filenamePatterns = {
     'adlist': 'Ad Domains',
     'spam': 'Spam Domains',
     'privacy': 'Privacy Violating Domains',
     'abuse': 'Abuse Domains',
-    'dga7': 'DGA Domains',
+    'dga7': 'Newly Registered Domains (7 day)',
+    'nrd-30d': 'Newly Registered Domains (30-day)',
     'main': 'Main List',
     'hosting': 'Hosting IPs',
-    'levels': 'Threat Level IPs'
+    'levels': 'Threat IPs',
+    'fake': 'Fake/Spoofed Domains',
+    'tracking': 'Tracking Domains',
+    
   };
   const geoPatterns = {
     'brazil': 'Brazil',
