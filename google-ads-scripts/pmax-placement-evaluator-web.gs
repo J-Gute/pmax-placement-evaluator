@@ -10,7 +10,7 @@ const CONFIG = {
   WHITELIST_DOMAINS: 'https://raw.githubusercontent.com/J-Gute/pmax-placement-evaluator/refs/heads/main/whitelisted-domains.txt',
   SUSPICIOUS_TLDS: [
     'https://raw.githubusercontent.com/cbuijs/accomplist/main/suspicious-tlds/plain.black.tld.list',
-    'https://github.com/cbuijs/accomplist/blob/main/chris/abuse-tlds-dot.list',
+    'https://raw.githubusercontent.com/cbuijs/accomplist/refs/heads/main/chris/abuse-tlds-dot.list',
     'https://raw.githubusercontent.com/2004gixxer600/BlockLists/refs/heads/main/MaliciousDomain.txt'
   ],
   DOMAIN_BLOCKLIST: [
