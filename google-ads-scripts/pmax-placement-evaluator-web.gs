@@ -1,6 +1,7 @@
 /**
  * PMAX Placement Domain Analysis Script
  * Fetches blacklists, analyzes PMAX placements, and flags suspicious domains
+ * 
  */
 
 // Configuration
@@ -8,8 +9,8 @@ const CONFIG = {
   SPAM_KEYWORDS: 'https://raw.githubusercontent.com/J-Gute/pmax-placement-evaluator/refs/heads/main/spam-and-irrelevant-terms',
   WHITELIST_DOMAINS: 'https://raw.githubusercontent.com/J-Gute/pmax-placement-evaluator/refs/heads/main/whitelisted-domains.txt',
   SUSPICIOUS_TLDS: [
-    'https://raw.githubusercontent.com/cbuijs/accomplist/refs/heads/main/chris/abuse-tlds-dot.list',
-    'https://raw.githubusercontent.com/cbuijs/accomplist/main/suspicious-tlds/plain.black.tld.list'
+    'https://raw.githubusercontent.com/cbuijs/accomplist/main/suspicious-tlds/plain.black.tld.list',
+    'https://raw.githubusercontent.com/2004gixxer600/BlockLists/refs/heads/main/MaliciousDomain.txt'
   ],
   DOMAIN_BLOCKLIST: [
     'https://raw.githubusercontent.com/cbuijs/blocklistproject/refs/heads/main/lists/abuse/domains',
@@ -26,7 +27,6 @@ const CONFIG = {
     'https://raw.githubusercontent.com/cbuijs/blocklistproject/refs/heads/main/lists/tracking/domains',
     'https://raw.githubusercontent.com/cbuijs/blocklistproject/refs/heads/main/lists/redirect/domains.invalid',
     'https://raw.githubusercontent.com/cbuijs/nrd/refs/heads/main/nrd-30d.domains.list',
-
     'https://raw.githubusercontent.com/2004gixxer600/BlockLists/refs/heads/main/MaliciousDomain.txt',
     'https://raw.githubusercontent.com/cbuijs/ut1/master/warez/domains',
     'https://raw.githubusercontent.com/romainmarcoux/malicious-domains/refs/heads/main/full-domains-aa.txt',
@@ -36,7 +36,7 @@ const CONFIG = {
     'https://raw.githubusercontent.com/Levi2288/AdvancedBlockList/refs/heads/main/Lists/abuse.txt',
     'https://cdn.jsdelivr.net/gh/hagezi/dns-blocklists@latest/domains/dga7.txt',
     'https://raw.githubusercontent.com/hagezi/dns-blocklists/refs/heads/main/wildcard/fake-onlydomains.txt',
-    'https://raw.githubusercontent.com/J-Gute/pmax-placement-evaluator/refs/heads/main/disw-mcc-exclusion-master-list',
+    'https://raw.githubusercontent.com/J-Gute/pmax-placement-evaluator/refs/heads/main/disw-mcc-exclusion-master-list'
   ],
   IP_BLOCKLIST: [
     'https://raw.githubusercontent.com/cbuijs/accomplist/refs/heads/main/malicious-ip/plain.black.ipcidr.list',
@@ -56,8 +56,8 @@ const CONFIG = {
     'https://raw.githubusercontent.com/sefinek/Malicious-IP-Addresses/main/lists/main.txt'
   ],
   SHEET_URL: 'URL here',
-  DATES_BACK: 10,
-  MIN_IMPRESSIONS: 2,
+  DATES_BACK: 7,
+  MIN_IMPRESSIONS: 1,
   DNS_BATCH_SIZE: 25,
   MAX_RETRIES: 3,
   SHORT_TERM_LENGTH: 6,
@@ -65,9 +65,108 @@ const CONFIG = {
   AUTO_EXCLUDE_TYPES: ['YOUTUBE_VIDEO', 'MOBILE_APPLICATION'],
   FILTER_OUT_TLDS: ['com', 'org', 'edu', 'de', 'uk', 'fr', 'jp', 'kr', 'us', 'es', 'ch', 'ir', 'pl'],
   OPR_API_KEY: 'API key here',
-  OPR_BATCH_SIZE: 100,
-  OPR_ENABLED: false,
+  OPR_BATCH_SIZE: 60,
+  OPR_ENABLED: true,
+  OPR_PAGE_RANK_THRESHOLD: 3.5, // determine threshold for exclusion criteria from OPR rank: 0-10 scale - see documentation for more info.
 };
+
+
+/**
+ * Enhanced Cache Manager with OPR-specific caching
+ */
+class CacheManager {
+  constructor() {
+    this.cache = PropertiesService.getScriptProperties();
+    this.cacheExpiryHours = 24 * 14; // 2 weeks for general cache
+    this.oprCacheExpiryHours = 24 * 60; // 2 months for OPR cache
+    this.maxChunkSize = 8000; // Safe limit for PropertiesService
+  }
+
+  get(key, isOprCache = false) {
+    try {
+      const info = this.cache.getProperty(`${key}_info`);
+      if (!info) return null;
+      
+      const metadata = JSON.parse(info);
+      const now = Date.now();
+      
+      // Use different expiry times for OPR cache vs general cache
+      const expiryTime = isOprCache ? this.oprCacheExpiryHours : this.cacheExpiryHours;
+      
+      // Check expiry
+      if (now - metadata.timestamp > expiryTime * 60 * 60 * 1000) {
+        this.delete(key);
+        return null;
+      }
+      
+      // Reconstruct data from chunks
+      let data = '';
+      for (let i = 0; i < metadata.chunks; i++) {
+        const chunk = this.cache.getProperty(`${key}_${i}`);
+        if (!chunk) {
+          this.delete(key);
+          return null;
+        }
+        data += chunk;
+      }
+      
+      return JSON.parse(data);
+    } catch (error) {
+      console.log(`Cache get error for ${key}: ${error.message}`);
+      return null;
+    }
+  }
+
+  set(key, data, isOprCache = false) {
+    try {
+      const jsonData = JSON.stringify(data);
+      const chunks = this.chunkString(jsonData, this.maxChunkSize);
+      
+      // Store chunks
+      chunks.forEach((chunk, index) => {
+        this.cache.setProperty(`${key}_${index}`, chunk);
+      });
+      
+      // Store metadata with cache type info
+      const metadata = {
+        chunks: chunks.length,
+        size: jsonData.length,
+        timestamp: Date.now(),
+        isOprCache: isOprCache
+      };
+      this.cache.setProperty(`${key}_info`, JSON.stringify(metadata));
+      
+      const cacheType = isOprCache ? 'OPR' : 'general';
+      console.log(`Cached ${key} (${cacheType}): ${chunks.length} chunks, ${Math.round(jsonData.length / 1024)}KB`);
+    } catch (error) {
+      console.log(`Cache set error for ${key}: ${error.message}`);
+    }
+  }
+
+  delete(key) {
+    try {
+      const info = this.cache.getProperty(`${key}_info`);
+      if (info) {
+        const metadata = JSON.parse(info);
+        for (let i = 0; i < metadata.chunks; i++) {
+          this.cache.deleteProperty(`${key}_${i}`);
+        }
+      }
+      this.cache.deleteProperty(`${key}_info`);
+    } catch (error) {
+      console.log(`Cache delete error for ${key}: ${error.message}`);
+    }
+  }
+
+  chunkString(str, chunkSize) {
+    const chunks = [];
+    for (let i = 0; i < str.length; i += chunkSize) {
+      chunks.push(str.slice(i, i + chunkSize));
+    }
+    return chunks;
+  }
+}
+
 
 // Global variables for blacklists with source tracking
 let blacklisted_domains = new Map();
@@ -76,6 +175,8 @@ let suspicious_tlds = new Map();
 let spam_keywords = [];
 let blacklisted_ips = new Map();
 let domain_page_ranks = new Map();
+let cache_manager = new CacheManager(); // only for OPR data. Might be overkill since 10k calls/hour, but why not
+
 
 /**
  * Enhanced dynamic list name extraction with intelligent naming based on repo and category
@@ -169,12 +270,12 @@ function generateDynamicName(owner, repo, category, filename, platform) {
   const normalizedFilename = filename.toLowerCase();
   const ownerPatterns = {
     'cbuijs': 'Accomplist',
-    'j-gute': 'DI SW',
+    'j-gute': 'di sw',
     'levi2288': 'AdvancedBlockList',
-    'romainmarcoux': 'Marcoux',
+    'romainmarcoux': 'Marcoux Security',
     'stamparm': 'IPsum',
-    'shadowwhisperer': 'SHWH',
-    'sefinek': 'Sefinek',
+    'shadowwhisperer': 'ShadowWhisperer',
+    'sefinek': 'Sefinek Security',
     '2004gixxer600': 'Gixxer BlockLists',
     'hagezi': 'HaGeZi'
   };
@@ -188,7 +289,7 @@ function generateDynamicName(owner, repo, category, filename, platform) {
     'games': 'Gaming Domains',
     'streaming': 'Streaming Domains',
     'chris': 'Regional Blacklisted Domains',
-    'warez': 'Warez/Piracy Domains',
+    'warez': 'Warez Domains',
     'suspicious-tlds': 'Suspicious TLDs',
     'abuse-tlds': 'Abuse TLDs',
     'domains': 'Domain Blocklist',
@@ -200,29 +301,17 @@ function generateDynamicName(owner, repo, category, filename, platform) {
     'spam-and-irrelevant-terms': 'Spam Keywords',
     'fake-onlydomains' : 'Likely Fake/Scam Domains',
     'whitelisted-domains': 'Whitelisted Domains',
-    'porn': 'Adult Content Domains',
-    'phishing': 'Phishing Domains',
-    'piracy': 'Piracy Domains',
-    'redirect': 'Redirect Domains',
-    'wildcard': 'Wildcard Domain Patterns',
-    'tracking': 'Tracking/Telemetry Domains',
-    'drugs': 'Drug-Related Domains',
-    'fraud': 'Fraud Domains',
-    'blocklistproject' : 'Block List Project',
-    'disw-mcc-exclusion-master-list': 'MCC Exclusion List'
+    'disw-mcc-exclusion-master-list': 'Custom MCC Exclusion List'
   };
   const filenamePatterns = {
     'adlist': 'Ad Domains',
     'spam': 'Spam Domains',
     'privacy': 'Privacy Violating Domains',
     'abuse': 'Abuse Domains',
-    'dga7': 'Newly Registered Domains (7 day)',
-    'nrd-30d': 'Newly Registered Domains (30-day)',
+    'dga7': 'DGA Domains',
     'main': 'Main List',
     'hosting': 'Hosting IPs',
-    'levels': 'Threat IPs',
-    'fake': 'Fake/Spoofed Domains',
-    'tracking': 'Tracking Domains'
+    'levels': 'Threat Level IPs'
   };
   const geoPatterns = {
     'brazil': 'Brazil',
@@ -307,8 +396,11 @@ function main() {
     });
     const placements = fetch_pmax_placements();
     timings.analysis = time_function(() => analyze_placements(placements));
+    // Fetch OPR data for ALL domains after analysis is complete
     timings.opr_fetch = time_function(() => fetch_open_page_rank_data(placements));
     timings.opr_apply = time_function(() => apply_open_page_rank_data(placements));
+    // Apply OPR threshold filter after OPR data is applied
+    timings.opr_filter = time_function(() => check_opr_page_rank_threshold(placements));
     timings.output = time_function(() => output_results(placements, timings, start_time));
     log_summary(timings, placements.length, start_time);
   } catch (error) {
@@ -316,6 +408,39 @@ function main() {
     throw error;
   }
 }
+
+
+/**
+ * Check Open Page Rank threshold for final filtering
+ */
+function check_opr_page_rank_threshold(placements) {
+  if (!CONFIG.OPR_ENABLED || domain_page_ranks.size === 0) {
+    console.log('Skipping OPR threshold check - OPR disabled or no data available');
+    return;
+  }
+  
+  console.log(`Applying OPR page rank threshold filter (threshold: ${CONFIG.OPR_PAGE_RANK_THRESHOLD})...`);
+  let opr_filtered_count = 0;
+  
+  placements.forEach(placement => {
+    // Only apply OPR filter to placements that haven't been excluded yet and aren't whitelisted
+    if (placement.action === 'NEUTRAL' && placement.target_url) {
+      const domain = extract_domain(placement.target_url);
+      if (domain && domain_page_ranks.has(domain)) {
+        const opr_data = domain_page_ranks.get(domain);
+        if (opr_data.page_rank_decimal !== null && opr_data.page_rank_decimal < CONFIG.OPR_PAGE_RANK_THRESHOLD) {
+          placement.action = 'EXCLUDE';
+          placement.reason = `OPR page rank <= ${CONFIG.OPR_PAGE_RANK_THRESHOLD}`;
+          placement.reference_list = '';
+          opr_filtered_count++;
+        }
+      }
+    }
+  });
+  
+  console.log(`OPR threshold filter: ${opr_filtered_count} additional placements marked for exclusion`);
+}
+
 
 /**
  * Load multiple IP blocklists with deduplication and source tracking
@@ -858,14 +983,17 @@ function fetch_pmax_placements() {
 }
 
 /**
- * Fetch Open Page Rank data for unique domains
+ * Fetch Open Page Rank data for ALL unique domains with caching
  */
 function fetch_open_page_rank_data(placements) {
   if (!CONFIG.OPR_ENABLED || !CONFIG.OPR_API_KEY || CONFIG.OPR_API_KEY === 'YOUR-API-KEY-HERE') {
     console.log('Open Page Rank API disabled or not configured');
     return;
   }
-  console.log('Fetching Open Page Rank data...');
+  
+  console.log('Fetching Open Page Rank data for ALL domains...');
+  
+  // Get ALL unique domains from placements (including EXCLUDE ones)
   const unique_domains = new Set();
   placements.forEach(placement => {
     if (placement.target_url) {
@@ -875,27 +1003,71 @@ function fetch_open_page_rank_data(placements) {
       }
     }
   });
+  
   const domains_array = Array.from(unique_domains);
-  console.log(`Found ${domains_array.length} unique domains for OPR lookup`);
-  const batches = [];
-  for (let i = 0; i < domains_array.length; i += CONFIG.OPR_BATCH_SIZE) {
-    batches.push(domains_array.slice(i, i + CONFIG.OPR_BATCH_SIZE));
+  console.log(`Found ${domains_array.length} unique domains for OPR lookup (including EXCLUDE domains)`);
+  
+  // Check cache for existing OPR data
+  const cached_opr_data = cache_manager.get('opr_domain_data', true);
+  let cached_domains = new Map();
+  let cache_hits = 0;
+  
+  if (cached_opr_data) {
+    cached_domains = new Map(Object.entries(cached_opr_data));
+    console.log(`Found ${cached_domains.size} domains in OPR cache (2-month expiry)`);
+    
+    // Load cached data into domain_page_ranks
+    domains_array.forEach(domain => {
+      if (cached_domains.has(domain)) {
+        domain_page_ranks.set(domain, cached_domains.get(domain));
+        cache_hits++;
+      }
+    });
+    
+    console.log(`Cache hits: ${cache_hits}/${domains_array.length} domains`);
   }
+  
+  // Determine which domains need fresh API calls
+  const domains_to_fetch = domains_array.filter(domain => !cached_domains.has(domain));
+  
+  if (domains_to_fetch.length === 0) {
+    console.log('All domains found in cache, no API calls needed');
+    return;
+  }
+  
+  console.log(`Need to fetch ${domains_to_fetch.length} domains from OPR API`);
+  
+  // Batch API calls for domains not in cache
+  const batches = [];
+  for (let i = 0; i < domains_to_fetch.length; i += CONFIG.OPR_BATCH_SIZE) {
+    batches.push(domains_to_fetch.slice(i, i + CONFIG.OPR_BATCH_SIZE));
+  }
+  
+  let api_calls_made = 0;
   batches.forEach((batch, index) => {
     console.log(`Processing OPR batch ${index + 1}/${batches.length} (${batch.length} domains)`);
     try {
       const opr_data = call_open_page_rank_api(batch);
+      api_calls_made++;
+      
       if (opr_data && opr_data.response) {
         opr_data.response.forEach(domain_data => {
-          domain_page_ranks.set(domain_data.domain, {
+          const opr_info = {
             page_rank_integer: domain_data.page_rank_integer || 0,
             page_rank_decimal: domain_data.page_rank_decimal || 0,
             rank: domain_data.rank || null,
             status_code: domain_data.status_code || 0,
             error: domain_data.error || ''
-          });
+          };
+          
+          // Add to current session data
+          domain_page_ranks.set(domain_data.domain, opr_info);
+          
+          // Add to cached data for persistence
+          cached_domains.set(domain_data.domain, opr_info);
         });
       }
+      
       if (index < batches.length - 1) {
         Utilities.sleep(1000);
       }
@@ -903,9 +1075,16 @@ function fetch_open_page_rank_data(placements) {
       console.warn(`Failed to fetch OPR data for batch ${index + 1}:`, error);
     }
   });
-  console.log(`Successfully fetched OPR data for ${domain_page_ranks.size} domains`);
+  
+  // Update cache with all OPR data (existing + new)
+  if (api_calls_made > 0) {
+    const cache_data = Object.fromEntries(cached_domains);
+    cache_manager.set('opr_domain_data', cache_data, true);
+    console.log(`Updated OPR cache with ${cached_domains.size} total domains`);
+  }
+  
+  console.log(`Successfully fetched OPR data for ${domain_page_ranks.size} domains (${cache_hits} from cache, ${domains_to_fetch.length} from API)`);
 }
-
 /**
  * Call Open Page Rank API for a batch of domains
  */
@@ -934,14 +1113,15 @@ function call_open_page_rank_api(domains) {
 }
 
 /**
- * Apply Open Page Rank data to placements
+ * Apply Open Page Rank data to ALL placements
  */
 function apply_open_page_rank_data(placements) {
   if (domain_page_ranks.size === 0) {
     console.log('No Open Page Rank data available');
     return;
   }
-  console.log('Applying Open Page Rank data to placements...');
+  console.log('Applying Open Page Rank data to ALL placements...');
+  let applied_count = 0;
   placements.forEach(placement => {
     if (placement.target_url) {
       const domain = extract_domain(placement.target_url);
@@ -950,9 +1130,11 @@ function apply_open_page_rank_data(placements) {
         placement.page_rank = opr_data.page_rank_decimal;
         placement.domain_rank = opr_data.rank;
         placement.opr_status = opr_data.status_code === 200 ? 'Found' : 'Not Found';
+        applied_count++;
       }
     }
   });
+  console.log(`Applied OPR data to ${applied_count}/${placements.length} placements`);
 }
 
 /**
@@ -1390,7 +1572,7 @@ function output_reference_lists(sheet) {
 
 
 /**
- * Output analysis data with improved formatting
+ * Output analysis data with improved formatting - EXCLUDE placements only
  */
 function output_analysis_data(sheet, placements, timings, start_time) {
   sheet.clear();
@@ -1401,6 +1583,11 @@ function output_analysis_data(sheet, placements, timings, start_time) {
   const dateRange = getDateRange(CONFIG.DATES_BACK);
   const unique_customers = [...new Set(placements.map(p => `${p.customer_name} - ${p.customer_id}`))];
   const customer_display = unique_customers.length > 0 ? unique_customers.join(', ') : 'No accounts found';
+  
+  // Calculate OPR cache stats
+  const cached_opr_data = cache_manager.get('opr_domain_data', true);
+  const total_cached_domains = cached_opr_data ? Object.keys(cached_opr_data).length : 0;
+  
   const summary_data = [
     [`Account: ${customer_display}`],
     [`Script Last Refresh: ${current_datetime}`],
@@ -1408,20 +1595,20 @@ function output_analysis_data(sheet, placements, timings, start_time) {
     [`Date Range: ${dateRange.startDate} to ${dateRange.endDate}`],
     [`Total PMAX Placements: ${placements.length} | Recommended Exclusions: ${excluded_count} | Whitelisted: ${keep_count}`],
     [`Blacklist Stats: ${spam_keywords.length} keywords, ${blacklisted_domains.size} domains, ${suspicious_tlds.size} TLDs, ${blacklisted_ips.size} IPs`],
-    [`Open Page Rank: ${domain_page_ranks.size} domains analyzed | API Status: ${CONFIG.OPR_ENABLED ? 'Enabled' : 'Disabled'}`]
+    [`Open Page Rank: ${domain_page_ranks.size} domains analyzed | API Status: ${CONFIG.OPR_ENABLED ? 'Enabled' : 'Disabled'} | Threshold: ${CONFIG.OPR_PAGE_RANK_THRESHOLD} | Cache: ${total_cached_domains} domains (2 months)`]
   ];
   summary_data.forEach((row, index) => {
     sheet.getRange(index + 1, 1, 1, 1).setValue(row[0]);
   });
   sheet.getRange(1, 1, 1, 1).setFontWeight('bold');
   sheet.getRange(2, 1, 4, 1).setFontStyle('italic');
+  
   const header_row = 9;
   const headers = [
     'Campaign ID',
     'Placement Type',
     'Placement',
     'Impr.',
-    'Display Name',
     'Action',
     'Reason',
     'Page Rank',
@@ -1432,48 +1619,49 @@ function output_analysis_data(sheet, placements, timings, start_time) {
   header_range.setFontWeight('bold');
   header_range.setBackground('#d9d9d9');
   header_range.setWrap(true);
-  if (placements.length > 0) {
-    const data = placements.map(placement => [
+  
+  // Filter to only show EXCLUDE placements
+  const excluded_placements = placements.filter(p => p.action === 'EXCLUDE');
+  
+  if (excluded_placements.length > 0) {
+    const data = excluded_placements.map(placement => [
       placement.campaign_id || '',
       placement.placement_type || '',
       placement.target_url || '',
       placement.impressions || 0,
-      placement.display_name || '',
       placement.action || 'NEUTRAL',
       placement.reason || '',
       placement.page_rank || '',
       placement.domain_rank || ''
     ]);
     sheet.getRange(header_row + 1, 1, data.length, headers.length).setValues(data);
-    const action_range = sheet.getRange(header_row + 1, 6, data.length, 1);
+    
+    const action_range = sheet.getRange(header_row + 1, 5, data.length, 1);
     const exclude_rule = SpreadsheetApp.newConditionalFormatRule()
       .whenTextEqualTo('EXCLUDE')
       .setBackground('#ffcccc')
       .setRanges([action_range])
       .build();
-    const keep_rule = SpreadsheetApp.newConditionalFormatRule()
-      .whenTextEqualTo('KEEP')
-      .setBackground('#ccffcc')
-      .setRanges([action_range])
-      .build();
+    
     const rules = sheet.getConditionalFormatRules();
     rules.push(exclude_rule);
-    rules.push(keep_rule);
     sheet.setConditionalFormatRules(rules);
-    const reason_range = sheet.getRange(header_row + 1, 7, data.length, 1);
+    
+    const reason_range = sheet.getRange(header_row + 1, 6, data.length, 1);
     reason_range.setWrap(true);
-    sheet.setColumnWidth(7, 350);
+    sheet.setColumnWidth(6, 350);
     sheet.setColumnWidth(2, 120);
     sheet.setColumnWidth(4, 80);
-    sheet.setColumnWidth(8, 80);
-    sheet.setColumnWidth(9, 100);
+    sheet.setColumnWidth(7, 80);
+    sheet.setColumnWidth(8, 100);
   }
+  
   for (let i = 1; i <= headers.length; i++) {
-    if (![2, 4, 7, 8, 9].includes(i)) {
+    if (![2, 4, 6, 7, 8].includes(i)) {
       sheet.autoResizeColumn(i);
     }
   }
-  console.log(`Output ${placements.length} rows to web-exclusions sheet`);
+  console.log(`Output ${excluded_placements.length} EXCLUDE rows to web-exclusions sheet (filtered from ${placements.length} total placements)`);
 }
 
 /**
@@ -1493,6 +1681,9 @@ function log_summary(timings, total_placements, start_time) {
   console.log(`Blacklist fetch: ${(timings.blacklist_fetch / 1000).toFixed(2)}s`);
   console.log(`PMAX fetch: ${(timings.pmax_fetch / 1000).toFixed(2)}s`);
   console.log(`Analysis: ${(timings.analysis / 1000).toFixed(2)}s`);
+  console.log(`OPR fetch: ${(timings.opr_fetch / 1000).toFixed(2)}s`);
+  console.log(`OPR apply: ${(timings.opr_apply / 1000).toFixed(2)}s`);
+  console.log(`OPR filter: ${(timings.opr_filter / 1000).toFixed(2)}s`);
   console.log(`Output: ${(timings.output / 1000).toFixed(2)}s`);
   console.log(`Total placements analyzed: ${total_placements}`);
   console.log(`Placements flagged for exclusion: ${excluded_count}`);
