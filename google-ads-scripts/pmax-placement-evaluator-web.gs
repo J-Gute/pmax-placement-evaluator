@@ -208,7 +208,8 @@ function generateDynamicName(owner, repo, category, filename, platform) {
     'tracking': 'Tracking/Telemetry Domains',
     'drugs': 'Drug-Related Domains',
     'fraud': 'Fraud Domains',
-    'disw-mcc-exclusion-master-list': 'DISW MCC Exclusion List'
+    'blocklistproject' : 'Block List Project',
+    'disw-mcc-exclusion-master-list': 'MCC Exclusion List'
   };
   const filenamePatterns = {
     'adlist': 'Ad Domains',
@@ -221,8 +222,7 @@ function generateDynamicName(owner, repo, category, filename, platform) {
     'hosting': 'Hosting IPs',
     'levels': 'Threat IPs',
     'fake': 'Fake/Spoofed Domains',
-    'tracking': 'Tracking Domains',
-    
+    'tracking': 'Tracking Domains'
   };
   const geoPatterns = {
     'brazil': 'Brazil',
