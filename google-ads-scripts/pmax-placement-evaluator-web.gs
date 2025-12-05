@@ -67,7 +67,7 @@ const CONFIG = {
   FILTER_OUT_TLDS: ['com', 'org', 'edu', 'de', 'uk', 'fr', 'jp', 'kr', 'us', 'es', 'ch', 'ir', 'pl'],
   OPR_API_KEY: 'API key here',
   OPR_BATCH_SIZE: 60,
-  OPR_ENABLED: true,
+  OPR_ENABLED: false,
   OPR_PAGE_RANK_THRESHOLD: 3.5, // determine threshold for exclusion criteria from OPR rank: 0-10 scale - see documentation for more info.
 };
 
